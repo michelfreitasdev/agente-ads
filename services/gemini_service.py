@@ -15,7 +15,9 @@ import google.generativeai as genai
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
@@ -38,9 +40,12 @@ def gerar_artigo(tema: str, categoria: str = "Tecnologia") -> dict:
     - conteudo_markdown (frontmatter + corpo)
     - data
     """
-    model = genai.GenerativeModel(MODEL)
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY não configurada")
 
-    prompt = f"""Você é um escritor técnico brasileiro especializado em tecnologia.
+    try:
+        model = genai.GenerativeModel(MODEL)
+        prompt = f"""Você é um escritor técnico brasileiro especializado em tecnologia.
 
 Escreva um artigo completo em Markdown sobre o tema: "{tema}"
 Categoria: {categoria}
@@ -63,12 +68,26 @@ FORMATO DE SAÍDA — responda EXATAMENTE neste formato JSON:
 
 Responda APENAS com o JSON, sem texto antes ou depois."""
 
-    resposta = model.generate_content(prompt)
-    texto = resposta.text.strip()
+        resposta = model.generate_content(prompt)
+    except Exception as exc:
+        raise RuntimeError(f"Erro na geração de conteúdo via Gemini: {exc}") from exc
+
+    texto = getattr(resposta, "text", None)
+    if not texto:
+        raise RuntimeError("Resposta vazia recebida do Gemini")
+
+    texto = texto.strip()
     texto = re.sub(r"^```json\n?", "", texto)
     texto = re.sub(r"\n?```$", "", texto)
 
-    dados = json.loads(texto)
+    try:
+        dados = json.loads(texto)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Resposta inválida do Gemini") from exc
+
+    if not dados.get("titulo") or not dados.get("excerpt") or not dados.get("corpo"):
+        raise RuntimeError("Resposta incompleta do Gemini")
+
     slug = _gerar_slug(dados["titulo"])
     hoje = date.today().isoformat()
 

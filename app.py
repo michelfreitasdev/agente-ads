@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -6,6 +7,9 @@ from repositories.produto_repository import ProdutoRepository
 from repositories.artigo_repository import ArtigoRepository
 from services.gemini_service import gerar_artigo
 from services.github_service import publicar_artigo, artigo_existe
+
+logger = logging.getLogger("digitaltech")
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
     title="DigitalTech — Agente ADS",
@@ -98,8 +102,9 @@ def gerar_e_salvar_artigo(dados: GerarArtigoInput, db: Session = Depends(get_db)
     # 1. Gera o artigo com Gemini
     try:
         artigo = gerar_artigo(dados.tema, dados.categoria)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Erro ao gerar artigo com Gemini: {str(e)}")
+    except Exception as exc:
+        logger.exception("Falha ao gerar artigo")
+        raise HTTPException(status_code=502, detail="Erro ao gerar artigo com Gemini.") from exc
 
     # 2. Verifica se o slug já existe no banco
     repo = ArtigoRepository(db)
@@ -141,10 +146,10 @@ def gerar_e_salvar_artigo(dados: GerarArtigoInput, db: Session = Depends(get_db)
             resposta["blog_url"] = resultado["blog_url"]
             resposta["github_url"] = resultado["github_url"]
             resposta["mensagem"] = "Artigo gerado e publicado no blog com sucesso."
-        except Exception as e:
-            repo.marcar_erro(artigo_id, str(e))
-            raise HTTPException(status_code=502,
-                                detail=f"Artigo gerado mas erro ao publicar: {str(e)}")
+        except Exception as exc:
+            repo.marcar_erro(artigo_id, str(exc)[:500])
+            logger.exception("Falha na publicação imediata do artigo")
+            raise HTTPException(status_code=502, detail="Artigo gerado, mas ocorreu um erro ao publicar.") from exc
 
     return resposta
 
@@ -171,9 +176,10 @@ def publicar_artigo_existente(artigo_id: int, db: Session = Depends(get_db)):
             titulo=artigo.titulo,
         )
         repo.marcar_publicado(artigo_id, resultado["github_url"], resultado["blog_url"])
-    except Exception as e:
-        repo.marcar_erro(artigo_id, str(e))
-        raise HTTPException(status_code=502, detail=f"Erro ao publicar: {str(e)}")
+    except Exception as exc:
+        repo.marcar_erro(artigo_id, str(exc)[:500])
+        logger.exception("Falha ao publicar artigo existente")
+        raise HTTPException(status_code=502, detail="Erro ao publicar o artigo.") from exc
 
     return {
         "id": artigo_id,
