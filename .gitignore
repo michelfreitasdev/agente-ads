@@ -7,3 +7,8 @@ __pycache__/
 venv/
 *.log
 .DS_Store
+
+.env
+*.pem
+*.key
+*.p12
